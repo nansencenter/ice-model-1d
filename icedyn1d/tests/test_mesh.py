@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 
-import os
+import numpy as np
 import unittest
 from mock import patch, MagicMock, call, DEFAULT
-import numpy as np
-from matplotlib import pyplot as plt
 
 from icedyn1d.mesh import Mesh
 
