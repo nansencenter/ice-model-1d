@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-class mesh:
+class Mesh:
 
     def __init__(self, x):
         self.nodes_x = x
@@ -17,7 +17,7 @@ class mesh:
     def vector_max(self, x, y):
         return .5*(x+y +np.abs(x-y))
 
-    def get_interp_weights_1d_conservative(self, xn):
+    def get_interp_weights_conservative(self, xn):
         '''
         1d conservative remapping routine
 
@@ -40,7 +40,7 @@ class mesh:
             # loop over old nodes
             xlo, xro = self.nodes_x[i:i+2] #old LH, RH nodes
             check = (xrn>xlo) * (xln<xro)
-            w[check, i] = (vector_min(xrn[check], xro)
-                          - vector_max(xln[check], xlo)
+            w[check, i] = (self.vector_min(xrn[check], xro)
+                          - self.vector_max(xln[check], xlo)
                          )/(xro - xlo)
         return w
