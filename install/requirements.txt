@@ -1,6 +1,8 @@
 numpy
 scipy
 matplotlib
+netcdf4
 jupyter
 sympy
 nose
+mock
