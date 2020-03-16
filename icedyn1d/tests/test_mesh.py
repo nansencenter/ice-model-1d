@@ -84,5 +84,39 @@ class MeshTest(IceDyn1dTestBase):
         x[x<2.5] = 2.5
         self.assert_arrays_equal(y, x)
 
+    def test_detect_flipped_cavities(self):
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[4]=-1.5
+        m.move(um)
+        include = m.detect_flipped_cavities()
+        include2 = np.array(
+                [False, False, True, True, True, False, False, False, False])
+        self.assert_arrays_equal(include, include2)
+
+        # bigger move
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[4]=2.2
+        m.move(um)
+        include = m.detect_flipped_cavities()
+        include2 = np.array(
+                [False, False, False, True, True, True, True, False, False])
+        self.assert_arrays_equal(include, include2)
+
+        # big move to left
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[4]=-2.5
+        m.move(um)
+        include = m.detect_flipped_cavities()
+        include2 = np.array(
+                [False, True, True, True, True, False, False, False, False])
+        self.assert_arrays_equal(include, include2)
+
+
 if __name__ == "__main__":
     unittest.main()
