@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from matplotlib import pyplot as plt
-from skimage.morphology import binary_closing
+#from skimage.morphology import binary_closing
 
 class Mesh:
 
