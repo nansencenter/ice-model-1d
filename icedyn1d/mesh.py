@@ -156,5 +156,26 @@ class Mesh:
         bad_elements = (jac<0) + (widths<self.hmin) + (widths>self.hmax)
         return bad_elements, widths
 
+    def detect_flipped_cavities(self):
+        '''
+        If flipping has occurred, label elements that need to be remeshed
+        
+        Returns:
+        --------
+        remesh: np.ndarray(bool)
+            True if elements need to be remeshed
+        '''
+        jac = self.get_jacobian()
+        lh = self.nodes_x[:-1]
+        rh = self.nodes_x[1:]
+        remesh = np.zeros_like(lh, dtype=bool)
+        for inds, flipped in self.split_cavities(jac<0):
+            if not flipped:
+                continue
+            x_l = lh[inds[0]]
+            x_r = rh[inds[-1]]
+            remesh += (rh>=x_r)*(lh<=x_l)
+        return remesh
+
     def remesh(self):
         cavities, widths = self.detect_cavities()
