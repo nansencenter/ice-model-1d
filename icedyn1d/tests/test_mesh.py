@@ -70,5 +70,19 @@ class MeshTest(IceDyn1dTestBase):
             self.assert_arrays_equal(i, i2)
             self.assertEqual(l, l2)
 
+    def test_vector_min(self):
+        # eg of only internal cavities
+        x = np.arange(5, dtype=float)
+        y = Mesh.vector_min(x, 2.5)
+        x[x>2.5] = 2.5
+        self.assert_arrays_equal(y, x)
+
+    def test_vector_max(self):
+        # eg of only internal cavities
+        x = np.arange(5, dtype=float)
+        y = Mesh.vector_max(x, 2.5)
+        x[x<2.5] = 2.5
+        self.assert_arrays_equal(y, x)
+
 if __name__ == "__main__":
     unittest.main()

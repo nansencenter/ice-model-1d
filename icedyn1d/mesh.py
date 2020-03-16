@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-
 import numpy as np
 from matplotlib import pyplot as plt
-
+from skimage.morphology import binary_closing
 
 class Mesh:
 
     def __init__(self, x):
-        self.nodes_x = x
+        self.nodes_x = np.array(x)
         self.num_nodes = len(x)
         self.num_elements = self.num_nodes - 1
 
@@ -23,6 +22,43 @@ class Mesh:
     @staticmethod
     def vector_max(x, y):
         return .5*(x+y +np.abs(x-y))
+
+    @staticmethod
+    def split_cavities(barray):
+        '''
+        take a bool array and split into groups of contiguous elements
+
+        Parameters:
+        -----------
+        barray : np.ndarray(bool)
+
+        Returns:
+        --------
+        labeled_segments : list
+            [(inds0, label0), (inds1, label1), ..., (inds_n, label_n)];
+            inds0,... are np.ndarray(int) containing the indices of each segment;
+            label0,... are bool, with the value coming from their value in barray
+        '''
+        inds = np.arange(len(barray),dtype=int)
+        diff = np.diff(barray.astype(int))
+        label = barray[0]
+        lh = dict()
+        rh = dict()
+        for k, v in zip([True, False], [1, -1]):
+            lh[k] = list(inds[1:][diff==v])
+            rh[k] = list(inds[:-1][diff==-v])
+        lh[label].insert(0, 0)
+        rh[barray[-1]] += [len(barray)-1]
+
+        out = []
+        while True:
+            if len(lh[label])==0:
+                break
+            l = lh[label].pop(0)
+            r = rh[label].pop(0)
+            out += [(inds[l:r+1], label)]
+            label = not label
+        return out
 
     def get_interp_weights_conservative(self, xn):
         '''
@@ -119,43 +155,6 @@ class Mesh:
         widths = np.abs(jac)
         bad_elements = (jac<0) + (widths<self.hmin) + (widths>self.hmax)
         return bad_elements, widths
-
-    @staticmethod
-    def split_cavities(barray):
-        '''
-        take a bool array and split into groups of contiguous elements
-
-        Parameters:
-        -----------
-        barray : np.ndarray(bool)
-
-        Returns:
-        --------
-        labeled_segments : list
-            [(inds0, label0), (inds1, label1), ..., (inds_n, label_n)];
-            inds0,... are np.ndarray(int) containing the indices of each segment;
-            label0,... are bool, with the value coming from their value in barray
-        '''
-        inds = np.arange(len(barray),dtype=int)
-        diff = np.diff(barray.astype(int))
-        label = barray[0]
-        lh = dict()
-        rh = dict()
-        for k, v in zip([True, False], [1, -1]):
-            lh[k] = list(inds[1:][diff==v])
-            rh[k] = list(inds[:-1][diff==-v])
-        lh[label].insert(0, 0)
-        rh[barray[-1]] += [len(barray)-1]
-
-        out = []
-        while True:
-            if len(lh[label])==0:
-                break
-            l = lh[label].pop(0)
-            r = rh[label].pop(0)
-            out += [(inds[l:r+1], label)]
-            label = not label
-        return out
 
     def remesh(self):
         cavities, widths = self.detect_cavities()
