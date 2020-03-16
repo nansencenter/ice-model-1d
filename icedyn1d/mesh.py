@@ -11,10 +11,17 @@ class Mesh:
         self.num_nodes = len(x)
         self.num_elements = self.num_nodes - 1
 
-    def vector_min(self, x, y):
+        # try to stay relatively close to original widths
+        widths = self.get_widths()
+        self.hmin = .5*widths
+        self.hmax = 1.5*widths
+
+    @staticmethod
+    def vector_min(x, y):
         return .5*(x+y -np.abs(x-y))
 
-    def vector_max(self, x, y):
+    @staticmethod
+    def vector_max(x, y):
         return .5*(x+y +np.abs(x-y))
 
     def get_interp_weights_conservative(self, xn):
@@ -44,3 +51,111 @@ class Mesh:
                           - self.vector_max(xln[check], xlo)
                          )/(xro - xlo)
         return w
+
+    def move(self, um):
+        '''
+        Move the mesh nodes by a given displacement vector
+
+        Parameters:
+        -----------
+        um : numpy.ndarray
+        '''
+        self.nodes_x += um
+
+    def get_jacobian(self):
+        '''
+        return the jacobian, jac, of the transformation between the reference element , [0,1],
+        and the mesh elements.
+        The transformation is x = x0 + (x1-x0)*xi
+        jac < 0 means the element has flipped
+
+        Returns:
+        --------
+        jac : numpy.ndarray
+        '''
+        return np.diff(self.nodes_x)
+
+    def get_widths(self):
+        '''
+        return the element widths
+
+        Returns:
+        --------
+        w : numpy.ndarray
+        '''
+        return np.abs(self.get_jacobian())
+
+    def get_mass_matrix(self):
+        '''
+        M_{i,j} = \int_{x_0}^{x_1} { N_i(x)N_j(x) } dx
+
+        Returns:
+        --------
+        M : list
+            [[M_00, M_01], [M_01, M_11]]
+        '''
+        jac = self.get_jacobian()
+        return [[jac/3, jac/6], [jac/6, jac/3]]
+
+    def get_shape_coeffs(self):
+        '''
+        get the shape coefficients - the gradients of the basis functions for each element
+        N_0(xi) = xi, N_1(xi) = 1-xi;
+        \pa_x N_0(x) = (dxi/dx)*\pa_xi N_0(xi) = 1/J
+        \pa_x N_1(x) = (dxi/dx)*\pa_xi N_1(xi) = -1/J
+        '''
+        jac = self.get_jacobian()
+        return [1/jac, -1/jac]
+
+    def get_bad_elements(self):
+        '''
+        check for flipped or too-deformed elements
+
+        Returns:
+        --------
+        bad_elements : numpy.ndarray(bool)
+        '''
+        jac = self.get_jacobian()
+        widths = np.abs(jac)
+        bad_elements = (jac<0) + (widths<self.hmin) + (widths>self.hmax)
+        return bad_elements, widths
+
+    @staticmethod
+    def split_cavities(barray):
+        '''
+        take a bool array and split into groups of contiguous elements
+
+        Parameters:
+        -----------
+        barray : np.ndarray(bool)
+
+        Returns:
+        --------
+        labeled_segments : list
+            [(inds0, label0), (inds1, label1), ..., (inds_n, label_n)];
+            inds0,... are np.ndarray(int) containing the indices of each segment;
+            label0,... are bool, with the value coming from their value in barray
+        '''
+        inds = np.arange(len(barray),dtype=int)
+        diff = np.diff(barray.astype(int))
+        label = barray[0]
+        lh = dict()
+        rh = dict()
+        for k, v in zip([True, False], [1, -1]):
+            lh[k] = list(inds[1:][diff==v])
+            rh[k] = list(inds[:-1][diff==-v])
+        lh[label].insert(0, 0)
+        rh[barray[-1]] += [len(barray)-1]
+
+        out = []
+        while True:
+            if len(lh[label])==0:
+                break
+            l = lh[label].pop(0)
+            r = rh[label].pop(0)
+            out += [(inds[l:r+1], label)]
+            label = not label
+        return out
+
+    def remesh(self):
+        cavities, widths = self.detect_cavities()

@@ -34,5 +34,41 @@ class MeshTest(IceDyn1dTestBase):
         w_true[5,5]=1/1.9
         self.assert_arrays_equal(w_calc, w_true, tol=1e-8)
 
+    def test_split_cavities(self):
+        # eg of only internal cavities
+        b= np.array([0,1,0,1,1,1,0,0,0], dtype=bool)
+        segs = Mesh.split_cavities(b)
+        segs2 = [
+                (np.array([0]), False),
+                (np.array([1]), True),
+                (np.array([2]), False),
+                (np.array([3, 4, 5]), True),
+                (np.array([6, 7, 8]), False),
+                ]
+        self.assertEqual(len(segs), len(segs2))
+        for il, il2 in zip(segs, segs2):
+            i, l = il
+            i2, l2 = il2
+            self.assert_arrays_equal(i, i2)
+            self.assertEqual(l, l2)
+
+        # eg where there is an end cavity
+        b= np.array([0,1,0,1,1,1,0,0,1], dtype=bool)
+        segs = Mesh.split_cavities(b)
+        segs2 = [
+                (np.array([0]), False),
+                (np.array([1]), True),
+                (np.array([2]), False),
+                (np.array([3, 4, 5]), True),
+                (np.array([6, 7]), False),
+                (np.array([8]), True),
+                ]
+        self.assertEqual(len(segs), len(segs2))
+        for il, il2 in zip(segs, segs2):
+            i, l = il
+            i2, l2 = il2
+            self.assert_arrays_equal(i, i2)
+            self.assertEqual(l, l2)
+
 if __name__ == "__main__":
     unittest.main()
