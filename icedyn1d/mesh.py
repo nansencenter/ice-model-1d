@@ -3,6 +3,14 @@ import numpy as np
 from matplotlib import pyplot as plt
 #from skimage.morphology import binary_closing
 
+# set hmin and hmax for mesh as:
+# hmin = (1 - _DEV_LIM)*hmean
+# hmax = (1 + _DEV_LIM)*hmean
+_DEV_LIM = .5
+
+# set min size for a group of elements to be split as hmin = _HMIN_FACTOR*hmean
+_HMIN_FACTOR = 2
+
 class Mesh:
 
     def __init__(self, x):
@@ -10,10 +18,17 @@ class Mesh:
         self.num_nodes = len(x)
         self.num_elements = self.num_nodes - 1
 
-        # try to stay relatively close to original widths
-        widths = self.get_widths()
-        self.hmin = .5*widths
-        self.hmax = 1.5*widths
+        # allowed range of element widths
+        self.hmin = (1 - _DEV_LIM)*self.hmean
+        self.hmax = (1 + _DEV_LIM)*self.hmean
+
+    @property
+    def hmean(self):
+        return np.mean(self.get_widths())
+
+    @property
+    def min_split_width(self):
+        return _HMIN_FACTOR*self.hmean
 
     @staticmethod
     def vector_min(x, y):
@@ -143,19 +158,6 @@ class Mesh:
         jac = self.get_jacobian()
         return [1/jac, -1/jac]
 
-    def get_bad_elements(self):
-        '''
-        check for flipped or too-deformed elements
-
-        Returns:
-        --------
-        bad_elements : numpy.ndarray(bool)
-        '''
-        jac = self.get_jacobian()
-        widths = np.abs(jac)
-        bad_elements = (jac<0) + (widths<self.hmin) + (widths>self.hmax)
-        return bad_elements, widths
-
     def detect_flipped_cavities(self):
         '''
         If flipping has occurred, label elements that need to be remeshed
@@ -177,5 +179,92 @@ class Mesh:
             remesh += (rh>=x_r)*(lh<=x_l)
         return remesh
 
+    def extend_small_cavities(self, remesh, widths):
+        '''
+        if an element/group of elements is too small,
+        we need to merge with (a) neighbour(s)
+        
+        Parameters:
+        -----------
+        remesh: np.ndarray(bool)
+            True if elements need to be remeshed
+        widths: np.ndarray(float)
+            element widths
+
+        Returns:
+        --------
+        remesh: np.ndarray(bool)
+            Modified input
+        '''
+        for inds, remesh_ in self.split_cavities(remesh):
+            if not remesh_:
+                continue
+            inds_ = list(inds)
+            htot = np.sum(widths[inds_])
+            both = False
+            print(htot)
+            while htot < self.min_split_width:
+                i0 = inds_[0] - 1
+                i1 = inds_[-1] + 1
+                if inds[0] == 0:
+                    # can only extend to right
+                    left = False
+                elif inds[-1] == self.num_elements-1:
+                    # can only extend to left
+                    left = True
+                else:
+                    h0 = htot + widths[i0]
+                    h1 = htot + widths[i1]
+                    print(h0, h1)
+                    both = (h0 == h1)
+                    if h0>=self.min_split_width and h1<self.min_split_width:
+                        left = True
+                        print('1', left, both)
+                    elif h1>=self.min_split_width and h0<self.min_split_width:
+                        left = False
+                        print('2', left, both)
+                    elif h0>=self.min_split_width and h1>=self.min_split_width:
+                        # both big enough
+                        # - choose the one that gives the min htot (closest to self.min_split_width)
+                        left = (h0<h1)
+                        print('3', left, both)
+                    else:
+                        # both big enough
+                        # - choose the one that gives the max htot (closest to self.min_split_width)
+                        left = (h0>h1)
+                        print('4', left, both)
+
+                if both:
+                    inds_ = [i0, *inds_, i1]
+                elif left:
+                    inds_ = [i0, *inds_]
+                else:
+                    inds_ = [*inds_, i1]
+                htot = np.sum(widths[inds_])
+                print(htot)
+            remesh[np.array(inds_, dtype=int)] = True
+        return remesh
+
+    def detect_cavities(self):
+        '''
+        check for flipped or too-deformed elements
+
+        Returns:
+        --------
+        remesh: np.ndarray(bool)
+            True if elements need to be remeshed
+        widths: np.ndarray(float)
+            element widths
+        '''
+        # 1st check for flipping, or too small/too large elements
+        widths = self.get_widths()
+        remesh = (self.detect_flipped_cavities()
+                + (widths<self.hmin) + (widths>self.hmax))
+        # make sure none of the cavities are too small to split
+        return self.extend_small_cavities(remesh, widths), widths
+
     def remesh(self):
-        cavities, widths = self.detect_cavities()
+        remesh, widths = self.detect_cavities()
+        for inds, remesh_ in self.split_cavities(remesh):
+            if not remesh_:
+                continue
