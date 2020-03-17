@@ -117,6 +117,59 @@ class MeshTest(IceDyn1dTestBase):
                 [False, True, True, True, True, False, False, False, False])
         self.assert_arrays_equal(include, include2)
 
+    def test_extend_small_cavities(self):
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[4]=-.8
+        m.move(um)
+        widths = m.get_widths()
+        remesh2 = np.array(
+                [False, False, False, True, True, False, False, False, False])
+        for remesh0 in [(widths<m.hmin), (widths>m.hmax),
+                (widths<m.hmin) + (widths>m.hmax)]:
+            remesh = m.extend_small_cavities(remesh0, widths)
+            self.assert_arrays_equal(remesh, remesh2)
+
+        # one end element
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[0]=.8
+        m.move(um)
+        widths = m.get_widths()
+        remesh2 = np.array(
+                [True, True, True, False, False, False, False, False, False])
+        remesh = (widths<m.hmin) + (widths>m.hmax)
+        remesh = m.extend_small_cavities(remesh, widths)
+        self.assert_arrays_equal(remesh, remesh2)
+
+        # other end element
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[-1]= -.8
+        m.move(um)
+        widths = m.get_widths()
+        remesh2 = np.array(
+                [False, False, False, False, False, False, True, True, True])
+        remesh = (widths<m.hmin) + (widths>m.hmax)
+        remesh = m.extend_small_cavities(remesh, widths)
+        self.assert_arrays_equal(remesh, remesh2)
+
+        # multiple cavities
+        x = np.arange(10, dtype=float)
+        m = Mesh(x)
+        um = np.zeros_like(x)
+        um[3]= -.8
+        um[-1]= -.8
+        m.move(um)
+        widths = m.get_widths()
+        remesh2 = np.array(
+                [False, False, True, True, False, False, True, True, True])
+        remesh = (widths<m.hmin) + (widths>m.hmax)
+        remesh = m.extend_small_cavities(remesh, widths)
+        self.assert_arrays_equal(remesh, remesh2)
 
 if __name__ == "__main__":
     unittest.main()

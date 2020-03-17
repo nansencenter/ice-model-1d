@@ -179,7 +179,7 @@ class Mesh:
             remesh += (rh>=x_r)*(lh<=x_l)
         return remesh
 
-    def extend_small_cavities(self, remesh, widths):
+    def extend_small_cavities_iter(self, remesh, widths):
         '''
         if an element/group of elements is too small,
         we need to merge with (a) neighbour(s)
@@ -193,17 +193,19 @@ class Mesh:
 
         Returns:
         --------
-        remesh: np.ndarray(bool)
+        remesh : np.ndarray(bool)
             Modified input
+        stop : bool
+            repeat call again as some cavities are still too small
         '''
+        stop = True
         for inds, remesh_ in self.split_cavities(remesh):
             if not remesh_:
                 continue
             inds_ = list(inds)
             htot = np.sum(widths[inds_])
             both = False
-            print(htot)
-            while htot < self.min_split_width:
+            if htot < self.min_split_width:
                 i0 = inds_[0] - 1
                 i1 = inds_[-1] + 1
                 if inds[0] == 0:
@@ -213,6 +215,7 @@ class Mesh:
                     # can only extend to left
                     left = True
                 else:
+
                     h0 = htot + widths[i0]
                     h1 = htot + widths[i1]
                     print(h0, h1)
@@ -243,6 +246,29 @@ class Mesh:
                 htot = np.sum(widths[inds_])
                 print(htot)
             remesh[np.array(inds_, dtype=int)] = True
+            stop = stop and (htot>=self.min_split_width)
+        return remesh, stop
+
+    def extend_small_cavities(self, remesh, widths):
+        '''
+        if an element/group of elements is too small,
+        we need to merge with (a) neighbour(s)
+        
+        Parameters:
+        -----------
+        remesh: np.ndarray(bool)
+            True if elements need to be remeshed
+        widths: np.ndarray(float)
+            element widths
+
+        Returns:
+        --------
+        remesh : np.ndarray(bool)
+            Modified input
+        '''
+        stop = False
+        while not stop:
+            remesh, stop = self.extend_small_cavities_iter(remesh, widths)
         return remesh
 
     def detect_cavities(self):
