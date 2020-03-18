@@ -295,12 +295,14 @@ class Mesh:
         return self.extend_small_cavities(remesh, widths), widths
 
     def split_cavity(self, cav_widths, nodes_x_cav, next_id):
-        htot = np.sum(cav_widths)
         nel_old = len(cav_widths)
         xl = nodes_x_cav[0]
+        xr = nodes_x_cav[-1]
+        htot = np.sum(cav_widths)
+        dx = xr - xl
         el_x_cav = .5*(nodes_x_cav[1:] + nodes_x_cav[:-1])
-        nel_new = int(htot/self.hmean) # > _HMIN_FACTOR by definition
-        h = htot/nel_new
+        nel_new = int(dx/self.hmean) # > _HMIN_FACTOR by definition
+        h = dx/nel_new
         w_cons = np.array(nel_new*[cav_widths/htot])
         w_near = []
         xe = xl - h/2
