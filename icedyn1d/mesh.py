@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 from matplotlib import pyplot as plt
-#from skimage.morphology import binary_closing
+from collections import defaultdict
 
 # set hmin and hmax for mesh as:
 # hmin = (1 - _DEV_LIM)*hmean
@@ -14,13 +14,16 @@ _HMIN_FACTOR = 2
 class Mesh:
 
     def __init__(self, x):
-        self.nodes_x = np.array(x)
-        self.num_nodes = len(x)
-        self.num_elements = self.num_nodes - 1
-
-        # allowed range of element widths
+        ids = np.arange(len(x), dtype=int)
+        self.update_nodes(x, ids)
         self.hmin = (1 - _DEV_LIM)*self.hmean
         self.hmax = (1 + _DEV_LIM)*self.hmean
+
+    def update_nodes(self, x, ids):
+        self.nodes_x = np.array(x) #copy
+        self.num_nodes = len(x)
+        self.num_elements = self.num_nodes - 1
+        self.nodes_id = np.array(ids, dtype=int)
 
     @property
     def hmean(self):
@@ -74,6 +77,14 @@ class Mesh:
             out += [(inds[l:r+1], label)]
             label = not label
         return out
+
+    @staticmethod
+    def get_regrid_weights(shp, weights):
+        w = defaultdict(lambda : np.zeros(shp))
+        for inds_new, inds_old, w_cav in weights:
+            for k, v in w_cav.items():
+                w[k][inds_new[0]:inds_new[-1]+1, inds_old[0]:inds_old[-1]+1] = np.array(v)
+        return w
 
     def get_interp_weights_conservative(self, xn):
         '''
@@ -218,24 +229,19 @@ class Mesh:
 
                     h0 = htot + widths[i0]
                     h1 = htot + widths[i1]
-                    print(h0, h1)
                     both = (h0 == h1)
                     if h0>=self.min_split_width and h1<self.min_split_width:
                         left = True
-                        print('1', left, both)
                     elif h1>=self.min_split_width and h0<self.min_split_width:
                         left = False
-                        print('2', left, both)
                     elif h0>=self.min_split_width and h1>=self.min_split_width:
                         # both big enough
                         # - choose the one that gives the min htot (closest to self.min_split_width)
                         left = (h0<h1)
-                        print('3', left, both)
                     else:
                         # both big enough
                         # - choose the one that gives the max htot (closest to self.min_split_width)
                         left = (h0>h1)
-                        print('4', left, both)
 
                 if both:
                     inds_ = [i0, *inds_, i1]
@@ -244,7 +250,6 @@ class Mesh:
                 else:
                     inds_ = [*inds_, i1]
                 htot = np.sum(widths[inds_])
-                print(htot)
             remesh[np.array(inds_, dtype=int)] = True
             stop = stop and (htot>=self.min_split_width)
         return remesh, stop
@@ -289,8 +294,75 @@ class Mesh:
         # make sure none of the cavities are too small to split
         return self.extend_small_cavities(remesh, widths), widths
 
+    def split_cavity(self, cav_widths, nodes_x_cav, next_id):
+        htot = np.sum(cav_widths)
+        nel_old = len(cav_widths)
+        xl = nodes_x_cav[0]
+        el_x_cav = .5*(nodes_x_cav[1:] + nodes_x_cav[:-1])
+        nel_new = int(htot/self.hmean) # > _HMIN_FACTOR by definition
+        h = htot/nel_new
+        w_cons = np.array(nel_new*[cav_widths/htot])
+        w_near = []
+        xe = xl - h/2
+        for n in range(nel_new):
+            xe += h
+            w_near += [np.zeros(nel_old)]
+            i_near = np.argsort(np.abs(xe - el_x_cav))[0]
+            w_near[-1][i_near] = 1
+        id_new = np.arange(1, nel_new, dtype=int)
+        x_new = xl + h*id_new.astype(float)
+        id_new += next_id
+        return (list(x_new), list(id_new),
+                dict(conservative=w_cons, nearest=w_near))
+
+    def adapt_mesh(self, remesh, widths):
+        nodes_x = []
+        nodes_id = []
+        weights = []
+        nel_new = 0
+        next_id = self.nodes_id[-1] + 1
+        for inds_old, cavity in self.split_cavities(remesh):
+            n_inc = np.zeros((self.num_nodes,), dtype=bool)
+            n_inc[:-1][inds_old] = True
+            n_inc[1:][inds_old] = True
+            if not cavity:
+                nodes_x += list(self.nodes_x[n_inc])
+                nodes_id += list(self.nodes_id[n_inc])
+                inds_new = np.arange(
+                    nel_new, nel_new + len(inds_old), dtype=int)
+                nel_new += len(inds_old)
+                ident = np.identity(len(inds_old))
+                weights += [(inds_new, inds_old,
+                    dict(conservative=ident, nearest=ident))]
+            else:
+                x_new, id_new, cav_weights = self.split_cavity(
+                        widths[inds_old], self.nodes_x[n_inc], next_id)
+                nel_add = len(x_new) + 1 #only get internal nodes from split_cavity
+                nodes_x += x_new
+                nodes_id += id_new
+                next_id = id_new[-1] + 1
+                inds_new = np.arange(
+                    nel_new, nel_new + nel_add, dtype=int)
+                nel_new += nel_add
+                weights += [(inds_new, inds_old, cav_weights)]
+        # make sure we keep the boundaries
+        xl = self.nodes_x[0]
+        xr = self.nodes_x[-1]
+        if xl not in nodes_x:
+            nodes_x.insert(0, xl)
+            nodes_id.insert(0, self.nodes_x[0])
+        if xr not in nodes_x:
+            nodes_x.append(xr)
+            nodes_id.append(self.nodes_id[-1])
+        return np.array(nodes_x), np.array(nodes_id, dtype=int), weights
+
     def remesh(self):
+        # detect cavities
         remesh, widths = self.detect_cavities()
-        for inds, remesh_ in self.split_cavities(remesh):
-            if not remesh_:
-                continue
+        if not np.any(remesh):
+            return
+        nodes_x, nodes_id, weights_sep = self.adapt_mesh(remesh, widths)
+        # update mesh and return weights for regridding tracers
+        self.update_nodes(nodes_x, nodes_id)
+        shp = (self.num_elements, len(widths)) #shape of full weight matrix
+        weights = self.get_regrid_weights(shp, weights_sep)
