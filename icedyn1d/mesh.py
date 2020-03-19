@@ -189,8 +189,13 @@ class Mesh:
             x_r = rh[inds[-1]]
             remesh += (rh>=x_r)*(lh<=x_l)
         return remesh
+    
+    def get_cavity_width(self, inds):
+        xl = self.nodes_x[inds[0]]
+        xr = self.nodes_x[inds[-1]+1]
+        return xr-xl
 
-    def extend_small_cavities_iter(self, remesh, widths):
+    def extend_small_cavities_iter(self, remesh):
         '''
         if an element/group of elements is too small,
         we need to merge with (a) neighbour(s)
@@ -199,8 +204,6 @@ class Mesh:
         -----------
         remesh: np.ndarray(bool)
             True if elements need to be remeshed
-        widths: np.ndarray(float)
-            element widths
 
         Returns:
         --------
@@ -214,47 +217,47 @@ class Mesh:
             if not remesh_:
                 continue
             inds_ = list(inds)
-            htot = np.sum(widths[inds_])
-            both = False
+            htot = self.get_cavity_width(inds_)
             if htot < self.min_split_width:
                 i0 = inds_[0] - 1
                 i1 = inds_[-1] + 1
+                inds_dic = dict(
+                        both=[i0, *inds_, i1],
+                        left=[i0, *inds_],
+                        right=[*inds_, i1],
+                        )
                 if inds[0] == 0:
                     # can only extend to right
-                    left = False
+                    dirn = 'right'
                 elif inds[-1] == self.num_elements-1:
                     # can only extend to left
-                    left = True
+                    dirn = 'left'
                 else:
-
-                    h0 = htot + widths[i0]
-                    h1 = htot + widths[i1]
-                    both = (h0 == h1)
-                    if h0>=self.min_split_width and h1<self.min_split_width:
-                        left = True
+                    h0 = self.get_cavity_width(inds_dic['left'])
+                    h1 = self.get_cavity_width(inds_dic['right'])
+                    lr_dic = {True : 'left', False: 'right'}
+                    if h0 == h1:
+                        dirn = 'both'
+                    elif h0>=self.min_split_width and h1<self.min_split_width:
+                        dirn = 'left'
                     elif h1>=self.min_split_width and h0<self.min_split_width:
-                        left = False
+                        dirn = 'right'
                     elif h0>=self.min_split_width and h1>=self.min_split_width:
                         # both big enough
                         # - choose the one that gives the min htot (closest to self.min_split_width)
-                        left = (h0<h1)
+                        dirn = lr_dic[h0<h1]
                     else:
                         # both big enough
                         # - choose the one that gives the max htot (closest to self.min_split_width)
-                        left = (h0>h1)
+                        dirn = lr_dic[h0>h1]
 
-                if both:
-                    inds_ = [i0, *inds_, i1]
-                elif left:
-                    inds_ = [i0, *inds_]
-                else:
-                    inds_ = [*inds_, i1]
-                htot = np.sum(widths[inds_])
+                inds_ = inds_dic[dirn]
+                htot = self.get_cavity_width(inds_)
             remesh[np.array(inds_, dtype=int)] = True
             stop = stop and (htot>=self.min_split_width)
         return remesh, stop
 
-    def extend_small_cavities(self, remesh, widths):
+    def extend_small_cavities(self, remesh):
         '''
         if an element/group of elements is too small,
         we need to merge with (a) neighbour(s)
@@ -263,8 +266,6 @@ class Mesh:
         -----------
         remesh: np.ndarray(bool)
             True if elements need to be remeshed
-        widths: np.ndarray(float)
-            element widths
 
         Returns:
         --------
@@ -273,7 +274,7 @@ class Mesh:
         '''
         stop = False
         while not stop:
-            remesh, stop = self.extend_small_cavities_iter(remesh, widths)
+            remesh, stop = self.extend_small_cavities_iter(remesh)
         return remesh
 
     def detect_cavities(self):
@@ -292,7 +293,7 @@ class Mesh:
         remesh = (self.detect_flipped_cavities()
                 + (widths<self.hmin) + (widths>self.hmax))
         # make sure none of the cavities are too small to split
-        return self.extend_small_cavities(remesh, widths), widths
+        return self.extend_small_cavities(remesh), widths
 
     def split_cavity(self, cav_widths, nodes_x_cav, next_id):
         nel_old = len(cav_widths)
